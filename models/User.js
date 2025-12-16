@@ -24,6 +24,12 @@ const userSchema = new mongoose.Schema({
     type: String,
   }
   ,
+aadharNumber: {
+  type: String,
+  trim: true
+}
+
+  ,
   carts: [
     {
       product: {

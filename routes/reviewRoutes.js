@@ -3,7 +3,7 @@ const router = express.Router();
 const reviewController = require('../controllers/reviewController');
 const reviewValidators = require('../validations/reviewValidator');
 const validate = require('../middilewares/validate');
-// const { authenticate, isAdmin } = require('../middleware/auth');
+const { auth, isAdmin } = require('../middilewares/auth');
 
 // Public routes
 router.get('/',
@@ -22,33 +22,33 @@ router.get('/:id',
 
 // Protected routes (require authentication)
 router.post('/',
-    // authenticate,
+    auth,
     validate(reviewValidators.createReview),
     reviewController.createReview
 );
 
 router.put('/:id',
-    // authenticate,
+    auth,
     validate(reviewValidators.reviewId, 'params'),
     validate(reviewValidators.updateReview),
     reviewController.updateReview
 );
 
 router.delete('/:id',
-    // authenticate,
+    auth,
     validate(reviewValidators.reviewId, 'params'),
     reviewController.deleteReview
 );
 
 router.post('/:id/helpful',
-    // authenticate,
+    auth,
     validate(reviewValidators.reviewId, 'params'),
     validate(reviewValidators.markHelpful),
     reviewController.markHelpful
 );
 
 router.post('/:id/report',
-    // authenticate,
+    auth,
     validate(reviewValidators.reviewId, 'params'),
     validate(reviewValidators.reportReview),
     reviewController.reportReview
@@ -56,22 +56,22 @@ router.post('/:id/report',
 
 // Admin routes
 router.get('/stats',
-    // authenticate,
-    // isAdmin,
+    auth,
+    isAdmin,
     reviewController.getReviewStats
 );
 
 router.patch('/:id/status',
-    // authenticate,
-    // isAdmin,
+    auth,
+    isAdmin,
     validate(reviewValidators.reviewId, 'params'),
     validate(reviewValidators.updateStatus),
     reviewController.updateReviewStatus
 );
 
 router.post('/:id/admin-response',
-    // authenticate,
-    // isAdmin,
+    auth,
+    isAdmin,
     validate(reviewValidators.reviewId, 'params'),
     validate(reviewValidators.adminResponse),
     reviewController.addAdminResponse

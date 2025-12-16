@@ -34,7 +34,7 @@ const reviewController = {
                     _id: order,
                     user: userId,
                     'items.product': product,
-                    status: 'delivered'
+                    status: 'Delivered'
                 });
                 
                 if (orderExists) {

@@ -63,6 +63,10 @@ const validationRules = {
     body('mobile').optional()
       .matches(/^[0-9]{10}$/)
       .withMessage('Mobile number must be 10 digits'),
+       body('aadharNumber')
+    .optional()
+    .matches(/^[2-9]{1}[0-9]{11}$/)
+    .withMessage('Aadhaar number must be a valid 12-digit number')
   ],
 
   changePassword: [

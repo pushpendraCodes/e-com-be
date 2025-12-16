@@ -323,13 +323,14 @@ class UserController {
   // Update user profile
   async updateProfile(req, res) {
     try {
-      const { name, email, mobile } = req.body;
+      const { name, email, mobile ,aadharNumber} = req.body;
       const updates = {};
 
       // Build updates object (validation already done by middleware)
       if (name) updates.name = name.trim();
       if (email) updates.email = email.trim().toLowerCase();
       if (mobile) updates.mobile = mobile;
+      if (aadharNumber) updates.aadharNumber = aadharNumber;
 
       // Check for duplicate email
       if (email) {
