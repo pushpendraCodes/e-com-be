@@ -32,6 +32,7 @@ router.put('/:id',
     categoryController.updateCategory
 );
 
+
 router.delete('/:id', 
     auth, 
     isAdmin,

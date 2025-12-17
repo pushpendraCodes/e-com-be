@@ -18,6 +18,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const orderRoutes = require("./routes/orderRoutes")
 const cartRoutes = require("./routes/cartRoutes")
 const wishlistRoutes = require("./routes/wishlistRoutes")
+const contentRoutes =  require("./routes/contentRoutes")
 
 app.get("/", (req, res) => {
   res.send("Welcome to E-Commerce Portal");
@@ -32,6 +33,7 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/admin/content', contentRoutes);
 
 
 
