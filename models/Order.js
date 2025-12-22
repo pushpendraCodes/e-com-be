@@ -32,7 +32,8 @@ const orderSchema = new mongoose.Schema({
         variant: {
             size: String,
             color: String,
-            sku: String
+            sku: String,
+            id: mongoose.Schema.Types.ObjectId
         },
         quantity: {
             type: Number,
