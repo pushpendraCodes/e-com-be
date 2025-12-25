@@ -91,7 +91,7 @@ adminSchema.methods.generateOTP = function () {
 adminSchema.methods.verifyOTP = function (otp) {
     if (!this.otp || !this.otpExpires) return false;
     if (new Date() > this.otpExpires) return false;
-    return this.otp === otp;
+    return this.otp == otp;
 };
 
 adminSchema.pre('save', async function () {

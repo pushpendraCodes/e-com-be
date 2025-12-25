@@ -5,7 +5,7 @@ const Admin = require('../models/Admin');
 const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
-
+    console.log(token,"token")
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -15,7 +15,9 @@ const auth = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     const role = decoded.role
-    console.log(role,decoded.userId,"role")
+
+    console.log(decoded,"role")
+
     let user;
     if (role == "customer") {
       user = await User.findById(decoded.userId).select(' -otp');
@@ -37,6 +39,7 @@ const auth = async (req, res, next) => {
     req.role = role;
     next();
   } catch (error) {
+    console.log(error)
     res.status(401).json({
       success: false,
       message: 'Invalid or expired token'

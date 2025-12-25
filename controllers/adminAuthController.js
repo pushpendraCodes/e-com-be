@@ -150,7 +150,7 @@ class adminController {
                         mobile: user.mobile,
                         name: user.name || null,
                         email: user.email || null,
-                        role: "admin",
+                        role: user.role,
                         isVerified: true
                     }
                 }
@@ -189,7 +189,7 @@ class adminController {
             const now = new Date();
 
             // Prevent frequent OTP resends
-            if (admin.otpExpires && admin.otpExpires > new Date(now.getTime() - 60 * 1000)) {
+            if (admin.otpExpires && admin.otpExpires > new Date(now.getTime() - 30 * 1000)) {
                 // if last OTP sent less than 60 seconds ago
                 return res.status(429).json({
                     success: false,
