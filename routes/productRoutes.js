@@ -52,7 +52,7 @@ router.put(
 );
 
 router.delete(
-    '/:id',
+    '/:id/soft',
     auth,
     isAdmin,
     ProductController.deleteProduct

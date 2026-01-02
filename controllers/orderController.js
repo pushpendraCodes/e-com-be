@@ -492,89 +492,164 @@ exports.trackOrder = async (req, res) => {
 
 // Get All Orders (Admin)
 exports.getAllOrders = async (req, res) => {
-    try {
-        const { error, value } = getOrdersQueryValidation.validate(req.query);
-        if (error) {
-            return res.status(400).json({
-                success: false,
-                message: 'Validation error',
-                error: error.details[0].message
-            });
-        }
-
-        const { page, limit, status, paymentStatus, paymentMethod, startDate, endDate, minAmount, maxAmount, search, sortBy, sortOrder, userId } = value;
-
-        // Build query
-        const query = {};
-
-        if (status) query.status = status;
-        if (paymentStatus) query['payment.status'] = paymentStatus;
-        if (paymentMethod) query['payment.method'] = paymentMethod;
-        if (userId) query.user = userId;
-
-        if (startDate || endDate) {
-            query.createdAt = {};
-            if (startDate) query.createdAt.$gte = new Date(startDate);
-            if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                query.createdAt.$lte = end;
-            }
-        }
-
-        if (minAmount !== undefined || maxAmount !== undefined) {
-            query['pricing.total'] = {};
-            if (minAmount !== undefined) query['pricing.total'].$gte = minAmount;
-            if (maxAmount !== undefined) query['pricing.total'].$lte = maxAmount;
-        }
-
-        if (search) {
-            query.$or = [
-                { orderNumber: { $regex: search, $options: 'i' } },
-                { 'shippingAddress.fullName': { $regex: search, $options: 'i' } },
-                { 'shippingAddress.mobile': { $regex: search, $options: 'i' } },
-                { 'shippingAddress.email': { $regex: search, $options: 'i' } }
-            ];
-        }
-
-        // Sorting
-        const sort = {};
-        sort[sortBy] = sortOrder === 'asc' || sortOrder === '1' ? 1 : -1;
-
-        // Pagination
-        const skip = (page - 1) * limit;
-
-        const [orders, total] = await Promise.all([
-            Order.find(query)
-                .populate('user', 'name email mobile')
-                .populate('items.product', 'name images slug')
-                .sort(sort)
-                .skip(skip)
-                .limit(limit)
-                .lean(),
-            Order.countDocuments(query)
-        ]);
-
-        res.status(200).json({
-            success: true,
-            data: orders,
-            pagination: {
-                total,
-                page,
-                pages: Math.ceil(total / limit),
-                limit
-            }
-        });
-
-    } catch (error) {
-        console.error('Get orders error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching orders',
-            error: error.message
-        });
+  try {
+    const { error, value } = getOrdersQueryValidation.validate(req.query);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        error: error.details[0].message
+      });
     }
+
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      paymentStatus,
+      paymentMethod,
+      startDate,
+      endDate,
+      minAmount,
+      maxAmount,
+      search,
+      sortBy = 'createdAt',   // match frontend default
+      sortOrder = 'desc',
+      userId
+    } = value;
+
+    // Build query
+    const query = {};
+
+    if (status && status !== 'all') query.status = status;
+    if (paymentStatus && paymentStatus !== 'all') {
+      query['payment.status'] = paymentStatus;
+    }
+    if (paymentMethod && paymentMethod !== 'all') {
+      query['payment.method'] = paymentMethod;
+    }
+    if (userId) query.user = userId;
+
+    if (startDate || endDate) {
+      query.orderedAt = {}; // frontend sorts by orderedAt, so filter on it
+      if (startDate) query.orderedAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.orderedAt.$lte = end;
+      }
+    }
+
+    if (minAmount !== undefined || maxAmount !== undefined) {
+      query['pricing.total'] = {};
+      if (minAmount !== undefined) query['pricing.total'].$gte = Number(minAmount);
+      if (maxAmount !== undefined) query['pricing.total'].$lte = Number(maxAmount);
+    }
+
+    if (search) {
+      query.$or = [
+        { orderNumber: { $regex: search, $options: 'i' } },
+        { 'shippingAddress.fullName': { $regex: search, $options: 'i' } },
+        { 'shippingAddress.mobile': { $regex: search, $options: 'i' } },
+        { 'shippingAddress.email': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Sorting
+    const sort = {};
+    sort[sortBy] = sortOrder === 'asc' || sortOrder === '1' ? 1 : -1;
+
+    // Pagination
+    const pageNumber = Number(page) || 1;
+    const limitNumber = Number(limit) || 10;
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const [orders, total, statsAgg] = await Promise.all([
+      Order.find(query)
+        .populate('user', 'name email mobile')
+        .populate('items.product', 'name images slug')
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNumber)
+        .lean(),
+      Order.countDocuments(query),
+      // Stats for cards: counts + revenue + avg order
+      Order.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            all: { $sum: 1 },
+            pending: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'Pending'] }, 1, 0]
+              }
+            },
+            confirmed: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'Confirmed'] }, 1, 0]
+              }
+            },
+            processing: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'Processing'] }, 1, 0]
+              }
+            },
+            shipped: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'Shipped'] }, 1, 0]
+              }
+            },
+            delivered: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'Delivered'] }, 1, 0]
+              }
+            },
+            cancelled: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'Cancelled'] }, 1, 0]
+              }
+            },
+            totalRevenue: { $sum: '$pricing.total' }
+          }
+        }
+      ])
+    ]);
+
+    const statsDoc = statsAgg[0] || {};
+    const avgOrder =
+      statsDoc.all && statsDoc.all > 0
+        ? statsDoc.totalRevenue / statsDoc.all
+        : 0;
+
+    return res.status(200).json({
+      success: true,
+      orders,                 // frontend: setOrders(data.orders)
+      totalOrders: total,     // frontend: setTotalOrders(data.totalOrders)
+      totalPages: Math.ceil(total / limitNumber), // frontend: setTotalPages
+      currentPage: pageNumber,
+      stats: {
+        all: statsDoc.all || 0,
+        pending: statsDoc.pending || 0,
+        confirmed: statsDoc.confirmed || 0,
+        processing: statsDoc.processing || 0,
+        shipped: statsDoc.shipped || 0,
+        delivered: statsDoc.delivered || 0,
+        cancelled: statsDoc.cancelled || 0,
+        totalRevenue: statsDoc.totalRevenue || 0,
+        avgOrder
+      }
+    });
+  } catch (error) {
+    console.error('Get orders error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching orders',
+      error: error.message
+    });
+  }
 };
+
 
 // Update Order Status (Admin)
 exports.updateOrderStatus = async (req, res) => {

@@ -166,94 +166,84 @@ class adminController {
     }
 
 
-    async resendOtp(req, res) {
-        try {
-            const { mobile } = req.body;
+   async resendOtp(req, res) {
+  try {
+    const { mobile } = req.body;
 
-            if (!mobile || !/^\d{10}$/.test(mobile)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Valid 10-digit mobile number is required",
-                });
-            }
-
-            // Find admin
-            const admin = await Admin.findOne({ mobile });
-            if (!admin) {
-                return res.status(404).json({
-                    success: false,
-                    message: "admin not found with this mobile number",
-                });
-            }
-
-            const now = new Date();
-
-            // Prevent frequent OTP resends
-            if (admin.otpExpires && admin.otpExpires > new Date(now.getTime() - 30 * 1000)) {
-                // if last OTP sent less than 60 seconds ago
-                return res.status(429).json({
-                    success: false,
-                    message: "Please wait at least 1 minute before requesting a new OTP.",
-                });
-            }
-
-            // ✅ (Optional) Daily resend limit check
-            if (!admin.otpResendCount || !admin.otpLastSentDate) {
-                admin.otpResendCount = 0;
-                admin.otpLastSentDate = now;
-            } else {
-                const lastSentDate = new Date(admin.otpLastSentDate);
-                const sameDay =
-                    lastSentDate.getDate() === now.getDate() &&
-                    lastSentDate.getMonth() === now.getMonth() &&
-                    lastSentDate.getFullYear() === now.getFullYear();
-
-                if (!sameDay) {
-                    // reset counter for new day
-                    admin.otpResendCount = 0;
-                }
-            }
-
-            if (admin.otpResendCount >= 5) {
-                return res.status(429).json({
-                    success: false,
-                    message: "You have reached the maximum OTP resend limit for today.",
-                });
-            }
-
-            // ✅ Generate new OTP
-            // 2. Generate 6-digit OTP
-            const otp = Math.floor(100000 + Math.random() * 900000).toString();
-            const otpExpires = new Date(now.getTime() + 5 * 60 * 1000); // 5 min validity
-
-            // Save and update counters
-            admin.otp = otp;
-            admin.otpExpires = otpExpires;
-            admin.otpVerified = false;
-            admin.otpResendCount = (admin.otpResendCount || 0) + 1;
-            admin.otpLastSentDate = now;
-
-            await admin.save();
-
-            // Send OTP via SMS/Email
-            // await sendOtpToadmin(admin.mobile, otp);
-
-            return res.status(200).json({
-                success: true,
-                message: "OTP resent successfully",
-                nextRequestAfter: "1 minute",
-                otpExpires,
-                otp,
-                resendCount: admin.otpResendCount,
-            });
-        } catch (error) {
-            console.error("Error resending admin OTP:", error);
-            res.status(500).json({
-                success: false,
-                message: "Server error while resending OTP",
-            });
-        }
+    if (!mobile || !/^\d{10}$/.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid 10-digit mobile number is required",
+      });
     }
+
+    const admin = await Admin.findOne({ mobile });
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found with this mobile number",
+      });
+    }
+
+    const now = new Date();
+
+    // ✅ 1. COOLDOWN CHECK (60 seconds)
+    if (admin.otpSentAt) {
+      const diffInSeconds = (now - admin.otpSentAt) / 1000;
+
+      if (diffInSeconds < 60) {
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${Math.ceil(60 - diffInSeconds)} seconds before requesting a new OTP.`,
+        });
+      }
+    }
+
+    // ✅ 2. DAILY RESEND LIMIT
+    const today = now.toISOString().slice(0, 10);
+
+    if (admin.otpLastSentDate?.toISOString().slice(0, 10) !== today) {
+      admin.otpResendCount = 0;
+    }
+
+    if (admin.otpResendCount >= 5) {
+      return res.status(429).json({
+        success: false,
+        message: "You have reached the maximum OTP resend limit for today.",
+      });
+    }
+
+    // ✅ 3. GENERATE OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    admin.otp = otp;
+    admin.otpExpires = new Date(now.getTime() + 5 * 60 * 1000); // 5 min
+    admin.otpSentAt = now;
+    admin.otpVerified = false;
+    admin.otpResendCount += 1;
+    admin.otpLastSentDate = now;
+
+    await admin.save();
+
+    // await sendOtpToAdmin(admin.mobile, otp);
+
+    return res.status(200).json({
+      success: true,
+      otp,
+      message: "OTP resent successfully",
+      resendCount: admin.otpResendCount,
+      otpExpires: admin.otpExpires,
+    });
+
+  } catch (error) {
+    console.error("Error resending OTP:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while resending OTP",
+    });
+  }
+}
+
 
     // Login with password
     // async login(req, res) {

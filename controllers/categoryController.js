@@ -6,7 +6,7 @@ const categoryController = {
     createCategory: async (req, res) => {
         try {
             const { name, description, parentCategory, level, displayOrder,
-                showOnHomepage, isFeatured, seo, isActive } = req.body;
+                showOnHomepage, isFeatured, isActive } = req.body;
 
             // Check if category name already exists
             const existingCategory = await Category.findOne({
@@ -66,7 +66,7 @@ const categoryController = {
                 displayOrder,
                 showOnHomepage,
                 isFeatured,
-                seo,
+                // seo,
                 isActive
             });
 
@@ -88,69 +88,107 @@ const categoryController = {
     },
 
     // Get all categories with filters and pagination
-    getCategories: async (req, res) => {
-        try {
-            const { page, limit, search, isActive, isFeatured, showOnHomepage,
-                parentCategory, level, sortBy, sortOrder } = req.query;
+getCategories: async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      isActive,
+      status,
+      isFeatured,
+      showOnHomepage,
+      parentCategory,
+      level,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      all = 'false'
+    } = req.query;
 
-            // Build query
-            const query = {};
+    const fetchAll = all === 'true';
 
-            if (search) {
-                query.$or = [
-                    { name: { $regex: search, $options: 'i' } },
-                    { description: { $regex: search, $options: 'i' } }
-                ];
-            }
+    // Build query
+    const query = {};
 
-            if (isActive !== undefined) query.isActive = isActive;
-            if (isFeatured !== undefined) query.isFeatured = isFeatured;
-            if (showOnHomepage !== undefined) query.showOnHomepage = showOnHomepage;
-            if (level !== undefined) query.level = level;
+    // 🔍 Search
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
 
-            if (parentCategory === 'null') {
-                query.parentCategory = null;
-            } else if (parentCategory) {
-                query.parentCategory = parentCategory;
-            }
+    // 🔐 Active / Status logic (skip when all=true)
+    if (!fetchAll) {
+      if (req.role === 'admin') {
+        if (status !== undefined) query.isActive = status;
+      } else {
+        query.isActive = true;
+      }
 
-            // Sorting
-            const sort = {};
-            sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+      if (isActive !== undefined) query.isActive = isActive;
+    }
 
-            // Pagination
-            const skip = (page - 1) * limit;
+    // 🎯 Filters
+    if (isFeatured !== undefined) query.isFeatured = isFeatured;
+    if (showOnHomepage !== undefined) query.showOnHomepage = showOnHomepage;
+    if (level !== undefined) query.level = level;
 
-            // Execute query
-            const categories = await Category.find(query)
-                .populate('parentCategory', 'name slug')
-                .populate('subcategories')
-                .sort(sort)
-                .skip(skip)
-                .limit(limit)
-                .lean();
+    // 🌳 Parent Category
+    if (parentCategory === 'null') {
+      query.parentCategory = null;
+    } else if (parentCategory) {
+      query.parentCategory = parentCategory;
+    }
 
-            const total = await Category.countDocuments(query);
+    // 🔃 Sorting
+    const sort = {
+      [sortBy]: sortOrder === 'desc' ? -1 : 1
+    };
 
-            res.status(200).json({
-                success: true,
-                data: categories,
-                pagination: {
-                    total,
-                    page: parseInt(page),
-                    limit: parseInt(limit),
-                    pages: Math.ceil(total / limit)
-                }
-            });
-        } catch (error) {
-            console.error('Get categories error:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Failed to fetch categories',
-                error: error.message
-            });
-        }
-    },
+    // 📄 Base query
+    let categoryQuery = Category.find(query)
+      .populate('parentCategory', 'name slug')
+      .populate('subcategories')
+      .sort(sort)
+      .lean();
+
+    // 📌 Pagination (only if all !== true)
+    let pagination = null;
+    let total = 0;
+
+    if (!fetchAll) {
+      const skip = (Number(page) - 1) * Number(limit);
+      categoryQuery = categoryQuery.skip(skip).limit(Number(limit));
+      total = await Category.countDocuments(query);
+
+      pagination = {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        pages: Math.ceil(total / limit)
+      };
+    }
+
+    // 🚀 Execute
+    const categories = await categoryQuery;
+
+    res.status(200).json({
+      success: true,
+      data: categories,
+      ...(pagination && { pagination })
+    });
+
+  } catch (error) {
+    console.error('Get categories error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch categories',
+      error: error.message
+    });
+  }
+}
+,
 
     // Get single category by ID
     getCategoryById: async (req, res) => {
@@ -260,7 +298,7 @@ const categoryController = {
                     });
                 }
             }
-           
+
             if (req.file) {
                 try {
                     const upload = await uploadToCloudinary(req.file.path, req.file.originalname);

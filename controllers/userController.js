@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
-const uploadToCloudinary = require("../utils/cloudinary")
+const uploadToCloudinary = require("../utils/cloudinary");
+const { formattedUsers } = require('../utils/helpers');
 // Generate JWT Token
 const generateToken = (userId) => {
   return jwt.sign(
@@ -323,7 +324,7 @@ class UserController {
   // Update user profile
   async updateProfile(req, res) {
     try {
-      const { name, email, mobile ,aadharNumber} = req.body;
+      const { name, email, mobile, aadharNumber } = req.body;
       const updates = {};
 
       // Build updates object (validation already done by middleware)
@@ -628,7 +629,7 @@ class UserController {
   // Get all users (Admin only)
   async getAllUsers(req, res) {
     try {
-      const { page = 1, limit = 10, search } = req.query;
+      const { page = 1, limit = 10, search, status } = req.query;
       const query = {};
 
       if (search) {
@@ -638,22 +639,47 @@ class UserController {
           { email: new RegExp(search, 'i') }
         ];
       }
+      if (status) {
+        if (status === 'active') {
+          query.isActive = true;
+        } else if (status === 'blocked') {
+          query.isActive = false;
+        }
+      }
 
+
+      const allUsers = await User.find();
       const users = await User.find(query)
-        .select('-password -otp')
-        .limit(limit * 1)
+        .select("-password -otp")
+        .populate({
+          path: "carts.product",
+          select: "images variants", // ONLY WHAT YOU NEED
+        })
+        .populate({
+          path: "wishlist.product",
+          select: "images variants", // wishlist doesn't need variants usually
+        })
+        .limit(Number(limit))
         .skip((page - 1) * limit)
         .sort({ createdAt: -1 });
+
+
 
       const count = await User.countDocuments(query);
 
       res.json({
         success: true,
         data: {
-          users,
+          users: formattedUsers(users),
           totalPages: Math.ceil(count / limit),
           currentPage: page,
-          total: count
+          total: count,
+          stats: {
+            total: count,
+            active: allUsers.filter(user => user.isActive).length,
+            blocked: allUsers.filter(user => !user.isActive).length,
+            verified: allUsers.filter(user => user.isVerified).length,
+          }
         }
       });
     } catch (error) {
@@ -664,6 +690,37 @@ class UserController {
       });
     }
   }
-}
 
+  async toggleUserStatus(req, res) {
+    try {
+      const { userId } = req.params;
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+      user.isActive = !user.isActive;
+      await user.save();
+
+      res.json({
+        success: true,
+        message: `User has been ${user.isActive ? 'unblocked' : 'blocked'} successfully`,
+        data: {
+          userId: user._id,
+          isActive: user.isActive,
+        }
+      });
+    }
+    catch (error) {
+      console.error("Toggle User Status Error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to toggle user status",
+        error: error.message,
+      });
+    }
+  }
+}
 module.exports = new UserController();

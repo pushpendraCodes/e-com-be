@@ -82,5 +82,6 @@ router.delete('/addresses/:addressId', auth, userController.deleteAddress);
 
 // Admin routes
 router.get('/all', auth, isAdmin, userController.getAllUsers);
+router.patch('/toggle-status/:userId', auth, isAdmin, userController.toggleUserStatus);
 
 module.exports = router;
