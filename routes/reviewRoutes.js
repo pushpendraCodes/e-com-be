@@ -4,6 +4,7 @@ const reviewController = require('../controllers/reviewController');
 const reviewValidators = require('../validations/reviewValidator');
 const validate = require('../middilewares/validate');
 const { auth, isAdmin } = require('../middilewares/auth');
+const upload = require('../utils/multer');
 
 // Public routes
 router.get('/',
@@ -24,6 +25,7 @@ router.get('/:id',
 router.post('/',
     auth,
     validate(reviewValidators.createReview),
+    upload.array("pictures", 5),
     reviewController.createReview
 );
 
@@ -31,6 +33,7 @@ router.put('/:id',
     auth,
     validate(reviewValidators.reviewId, 'params'),
     validate(reviewValidators.updateReview),
+    upload.array("pictures", 5),
     reviewController.updateReview
 );
 
@@ -39,6 +42,7 @@ router.delete('/:id',
     validate(reviewValidators.reviewId, 'params'),
     reviewController.deleteReview
 );
+
 
 router.post('/:id/helpful',
     auth,
@@ -61,7 +65,14 @@ router.get('/stats',
     reviewController.getReviewStats
 );
 
-router.patch('/:id/status',
+
+router.delete('/:id/admin',
+    auth,
+    isAdmin,
+    validate(reviewValidators.reviewId, 'params'),
+    reviewController.deleteReviewForAdmin
+);
+router.patch('/:id/admin/status',
     auth,
     isAdmin,
     validate(reviewValidators.reviewId, 'params'),
@@ -76,5 +87,15 @@ router.post('/:id/admin-response',
     validate(reviewValidators.adminResponse),
     reviewController.addAdminResponse
 );
+
+
+// dashboard data
+
+router.get("/admin/dashboard", auth,
+    isAdmin, reviewController.getReviewDashboard)
+router.get("/admin/dashboard/recent-activity", auth,
+    isAdmin, reviewController.getRecentActivity)
+router.get("/admin/dashboard/recent-trends", auth,
+    isAdmin, reviewController.getRatingTrends)
 
 module.exports = router;

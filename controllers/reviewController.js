@@ -1,6 +1,8 @@
 const Review = require('../models/Review');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
+const uploadToCloudinary = require('../utils/cloudinary');
+const { calculatePendingChange, calculateReportedChange } = require('../utils/helpers');
 
 const reviewController = {
     // Create a new review
@@ -36,7 +38,7 @@ const reviewController = {
                     'items.product': product,
                     status: 'Delivered'
                 });
-                
+
                 if (orderExists) {
                     isVerifiedPurchase = true;
                 } else {
@@ -47,6 +49,43 @@ const reviewController = {
                 }
             }
 
+            let images = [];
+            if (req.files && req.files.length > 0) {
+                try {
+                    const uploadPromises = req.files.map(async (file, index) => {
+                        const upload = await uploadToCloudinary(
+                            file.path,
+                            file.originalname
+                        );
+
+                        const imageUrl = upload?.secure_url || upload?.url;
+
+                        return {
+                            url: imageUrl,
+
+                            caption: `image-${index}`
+                        };
+                    });
+
+                    images = await Promise.all(uploadPromises);
+
+                    if (!images.length) {
+                        return res.status(500).json({
+                            success: false,
+                            message: "Failed to upload product images"
+                        });
+                    }
+                } catch (uploadError) {
+                    console.error("Cloudinary upload error:", uploadError);
+                    return res.status(500).json({
+                        success: false,
+                        message: "Failed to upload images",
+                        error: uploadError.message
+                    });
+                }
+            }
+
+
             // Create review
             const review = new Review({
                 product,
@@ -56,6 +95,7 @@ const reviewController = {
                 title,
                 comment,
                 variant,
+                images,
                 isVerifiedPurchase,
                 status: 'pending' // Needs admin approval
             });
@@ -120,7 +160,7 @@ const reviewController = {
 
             const [reviews, total, ratingDistribution] = await Promise.all([
                 Review.find(query)
-                    .populate('user', 'name profilePicture')
+                    .populate('user', 'name profilePicture mobile')
                     .populate('product', 'name images')
                     .populate('adminResponse.respondedBy', 'name')
                     .sort(sort)
@@ -285,42 +325,97 @@ const reviewController = {
         try {
             const { id } = req.params;
             const userId = req.user._id;
-            const updates = req.body;
+
+            const {
+                rating,
+                title,
+                comment,
+                variant,
+                existingImages // array from frontend
+            } = req.body;
 
             const review = await Review.findOne({ _id: id, user: userId });
 
             if (!review) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Review not found or unauthorized'
+                    message: "Review not found or unauthorized"
                 });
             }
 
-            // Update fields
-            Object.keys(updates).forEach(key => {
-                review[key] = updates[key];
-            });
+            /* ---------- Parse Existing Images ---------- */
+            let parsedExistingImages = [];
+
+            if (existingImages) {
+                parsedExistingImages =
+                    typeof existingImages === "string"
+                        ? JSON.parse(existingImages)
+                        : existingImages;
+            }
+
+            /* ---------- Upload New Images ---------- */
+            let newImages = [];
+
+            if (req.files && req.files.length > 0) {
+                try {
+                    const uploadPromises = req.files.map(async (file, index) => {
+                        const upload = await uploadToCloudinary(
+                            file.path,
+                            file.originalname
+                        );
+
+                        const imageUrl = upload?.secure_url || upload?.url;
+
+                        return {
+                            url: imageUrl,
+                            caption: `image-${Date.now()}-${index}`
+                        };
+                    });
+
+                    newImages = await Promise.all(uploadPromises);
+                } catch (uploadError) {
+                    console.error("Cloudinary upload error:", uploadError);
+                    return res.status(500).json({
+                        success: false,
+                        message: "Failed to upload images",
+                        error: uploadError.message
+                    });
+                }
+            }
+
+            /* ---------- Merge Images ---------- */
+            review.images = [...parsedExistingImages, ...newImages];
+
+            /* ---------- Update Fields ---------- */
+            if (rating !== undefined) review.rating = rating;
+            if (title !== undefined) review.title = title;
+            if (comment !== undefined) review.comment = comment;
+            if (variant !== undefined) review.variant = variant;
 
             review.isEdited = true;
             review.editedAt = new Date();
-            review.status = 'pending'; // Re-submit for approval
+            review.status = "pending"; // needs re-approval
 
             await review.save();
 
-            res.status(200).json({
-                success: false,
-                message: 'Review updated successfully. Awaiting re-approval.',
+            await review.populate("user", "name email profilePicture");
+
+            return res.status(200).json({
+                success: true,
+                message: "Review updated successfully. Awaiting re-approval.",
                 data: review
             });
+
         } catch (error) {
-            console.error('Update review error:', error);
-            res.status(500).json({
+            console.error("Update review error:", error);
+            return res.status(500).json({
                 success: false,
-                message: 'Failed to update review',
+                message: "Failed to update review",
                 error: error.message
             });
         }
-    },
+    }
+    ,
 
     // Delete own review
     deleteReview: async (req, res) => {
@@ -334,6 +429,33 @@ const reviewController = {
                 return res.status(404).json({
                     success: false,
                     message: 'Review not found or unauthorized'
+                });
+            }
+
+            res.status(200).json({
+                success: true,
+                message: 'Review deleted successfully'
+            });
+        } catch (error) {
+            console.error('Delete review error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to delete review',
+                error: error.message
+            });
+        }
+    },
+    deleteReviewForAdmin: async (req, res) => {
+        try {
+            const { id } = req.params;
+            // const userId = req.user._id;
+
+            const review = await Review.findByIdAndDelete(id);
+
+            if (!review) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Review not found '
                 });
             }
 
@@ -580,6 +702,225 @@ const reviewController = {
             });
         }
     }
+    ,
+
+
+
+    getReviewDashboard: async (req, res) => {
+        try {
+            // 1. Get overall statistics
+            const [
+                totalReviews,
+                avgRatingData,
+                pendingApproval,
+                reportedReviews,
+                previousTotalReviews,
+                previousAvgRating
+            ] = await Promise.all([
+                // Total reviews count
+                Review.countDocuments({ status: 'approved' }),
+
+                // Average rating
+                Review.aggregate([
+                    { $match: { status: 'approved' } },
+                    { $group: { _id: null, avgRating: { $avg: '$rating' } } }
+                ]),
+
+                // Pending approval count
+                Review.countDocuments({ status: 'pending' }),
+
+                // Reported reviews count
+                Review.countDocuments({ reportCount: { $gt: 0 } }),
+
+                // Previous period total (30 days ago)
+                Review.countDocuments({
+                    status: 'approved',
+                    createdAt: { $lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+                }),
+
+                // Previous period average rating (30 days ago)
+                Review.aggregate([
+                    {
+                        $match: {
+                            status: 'approved',
+                            createdAt: { $lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+                        }
+                    },
+                    { $group: { _id: null, avgRating: { $avg: '$rating' } } }
+                ])
+            ]);
+
+            const currentAvgRating = avgRatingData[0]?.avgRating || 0;
+            const prevAvgRating = previousAvgRating[0]?.avgRating || 0;
+
+            // Calculate changes
+            const reviewsChange = totalReviews - previousTotalReviews;
+            const ratingChange = currentAvgRating - prevAvgRating;
+            const pendingChange = await calculatePendingChange();
+            const reportedChange = await calculateReportedChange();
+
+            // 2. Get top reviewed products
+            const topReviewedProducts = await Review.aggregate([
+                { $match: { status: 'approved' } },
+                {
+                    $group: {
+                        _id: '$product',
+                        totalReviews: { $sum: 1 },
+                        avgRating: { $avg: '$rating' },
+                        rating5: { $sum: { $cond: [{ $eq: ['$rating', 5] }, 1, 0] } },
+                        rating4: { $sum: { $cond: [{ $eq: ['$rating', 4] }, 1, 0] } },
+                        rating3: { $sum: { $cond: [{ $eq: ['$rating', 3] }, 1, 0] } },
+                        rating2: { $sum: { $cond: [{ $eq: ['$rating', 2] }, 1, 0] } },
+                        rating1: { $sum: { $cond: [{ $eq: ['$rating', 1] }, 1, 0] } }
+                    }
+                },
+                { $sort: { totalReviews: -1 } },
+                { $limit: 4 },
+                {
+                    $lookup: {
+                        from: 'products',
+                        localField: '_id',
+                        foreignField: '_id',
+                        as: 'productDetails'
+                    }
+                },
+                { $unwind: '$productDetails' },
+                {
+                    $project: {
+                        productId: '$_id',
+                        productName: '$productDetails.name',
+                        productImage: {
+                            $arrayElemAt: ['$productDetails.images.url', 0]
+                        },
+                        totalReviews: 1,
+                        avgRating: { $round: ['$avgRating', 1] },
+                        ratingDistribution: {
+                            5: '$rating5',
+                            4: '$rating4',
+                            3: '$rating3',
+                            2: '$rating2',
+                            1: '$rating1'
+                        }
+                    }
+                }
+            ]);
+
+            // 3. Format response
+            const dashboardData = {
+                statistics: {
+                    totalReviews: {
+                        count: totalReviews,
+                        change: reviewsChange,
+                        trend: reviewsChange > 0 ? 'up' : reviewsChange < 0 ? 'down' : 'stable'
+                    },
+                    avgRating: {
+                        rating: parseFloat(currentAvgRating.toFixed(1)),
+                        change: parseFloat(ratingChange.toFixed(1)),
+                        trend: ratingChange > 0 ? 'up' : ratingChange < 0 ? 'down' : 'stable'
+                    },
+                    pendingApproval: {
+                        count: pendingApproval,
+                        change: pendingChange,
+                        trend: pendingChange > 0 ? 'up' : pendingChange < 0 ? 'down' : 'stable'
+                    },
+                    reportedReviews: {
+                        count: reportedReviews,
+                        change: reportedChange,
+                        trend: reportedChange > 0 ? 'up' : reportedChange < 0 ? 'down' : 'stable'
+                    }
+                },
+                topReviewedProducts: topReviewedProducts.map(product => ({
+                    id: product.productId,
+                    name: product.productName,
+                    image: product.productImage,
+                    rating: product.avgRating,
+                    totalReviews: product.totalReviews,
+                    distribution: [
+                        { star: 5, count: product.ratingDistribution[5] },
+                        { star: 4, count: product.ratingDistribution[4] },
+                        { star: 3, count: product.ratingDistribution[3] },
+                        { star: 2, count: product.ratingDistribution[2] },
+                        { star: 1, count: product.ratingDistribution[1] }
+                    ]
+                }))
+            };
+
+            res.status(200).json({
+                success: true,
+                data: dashboardData
+            });
+
+        } catch (error) {
+            console.error('Dashboard data error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to fetch dashboard data',
+                error: error.message
+            });
+        }
+    },
+
+    getRecentActivity: async (req, res) => {
+        try {
+            const recentReviews = await Review.find({ status: 'approved' })
+                .sort({ createdAt: -1 })
+                .limit(10)
+                .populate('user', 'name avatar')
+                .populate('product', 'name images')
+                .select('rating comment createdAt user product');
+
+            res.status(200).json({
+                success: true,
+                data: recentReviews
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: 'Failed to fetch recent activity',
+                error: error.message
+            });
+        }
+    }
+    ,
+
+    getRatingTrends: async (req, res) => {
+        try {
+            const { period = '30' } = req.query; // days
+            const daysAgo = parseInt(period);
+
+            const trends = await Review.aggregate([
+                {
+                    $match: {
+                        status: 'approved',
+                        createdAt: { $gte: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000) }
+                    }
+                },
+                {
+                    $group: {
+                        _id: {
+                            $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+                        },
+                        avgRating: { $avg: '$rating' },
+                        count: { $sum: 1 }
+                    }
+                },
+                { $sort: { _id: 1 } }
+            ]);
+
+            res.status(200).json({
+                success: true,
+                data: trends
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: 'Failed to fetch rating trends',
+                error: error.message
+            });
+        }
+    },
+
+
 };
 
 module.exports = reviewController;

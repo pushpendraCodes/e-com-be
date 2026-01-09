@@ -1,3 +1,5 @@
+const Review = require("../models/Review");
+
 const generateSessionId = () => {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 };
@@ -23,14 +25,14 @@ const formattedUsers = (users) =>
           image: cart.product.images?.[0]?.url || null,
           variant: selectedVariant
             ? {
-                _id: selectedVariant._id,
-                size: selectedVariant.size,
-                color: selectedVariant.color,
-                colorCode: selectedVariant.colorCode,
-                sku: selectedVariant.sku,
-                price: selectedVariant.price,
-                stock: selectedVariant.stock,
-              }
+              _id: selectedVariant._id,
+              size: selectedVariant.size,
+              color: selectedVariant.color,
+              colorCode: selectedVariant.colorCode,
+              sku: selectedVariant.sku,
+              price: selectedVariant.price,
+              stock: selectedVariant.stock,
+            }
             : null,
         }
       };
@@ -51,13 +53,13 @@ const formattedUsers = (users) =>
           price: defaultVariant?.price || null,
           variant: defaultVariant
             ? {
-                _id: defaultVariant._id,
-                size: defaultVariant.size,
-                color: defaultVariant.color,
-                colorCode: defaultVariant.colorCode,
-                sku: defaultVariant.sku,
-                stock: defaultVariant.stock,
-              }
+              _id: defaultVariant._id,
+              size: defaultVariant.size,
+              color: defaultVariant.color,
+              colorCode: defaultVariant.colorCode,
+              sku: defaultVariant.sku,
+              stock: defaultVariant.stock,
+            }
             : null,
         }
       };
@@ -67,11 +69,31 @@ const formattedUsers = (users) =>
   });
 
 
+const calculatePendingChange = async () => {
+  const currentPending = await Review.countDocuments({ status: 'pending' });
+  const previousPending = await Review.countDocuments({
+    status: 'pending',
+    createdAt: { $lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+  });
+  return currentPending - previousPending;
+}
+  ;
+// Helper function to calculate reported reviews change
+const calculateReportedChange = async () => {
+  const currentReported = await Review.countDocuments({ reportCount: { $gt: 0 } });
+  const previousReported = await Review.countDocuments({
+    reportCount: { $gt: 0 },
+    'reports.0.reportedAt': { $lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+  });
+  return currentReported - previousReported;
+}
 
-module.exports = {
-  generateSessionId,
-  formattedUsers
-};
+  module.exports = {
+    generateSessionId,
+    formattedUsers,
+    calculatePendingChange,
+    calculateReportedChange
+  };
 
 
 

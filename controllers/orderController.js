@@ -610,6 +610,16 @@ exports.getAllOrders = async (req, res) => {
                 $cond: [{ $eq: ['$status', 'Cancelled'] }, 1, 0]
               }
             },
+            returned: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'Returned'] }, 1, 0]
+              }
+            },
+            refunded: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'Refunded'] }, 1, 0]
+              }
+            },
             totalRevenue: { $sum: '$pricing.total' }
           }
         }
@@ -636,6 +646,8 @@ exports.getAllOrders = async (req, res) => {
         shipped: statsDoc.shipped || 0,
         delivered: statsDoc.delivered || 0,
         cancelled: statsDoc.cancelled || 0,
+        returned: statsDoc.returned || 0,
+        refunded: statsDoc.refunded || 0,
         totalRevenue: statsDoc.totalRevenue || 0,
         avgOrder
       }
